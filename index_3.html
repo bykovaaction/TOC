@@ -1,0 +1,906 @@
+<!doctype html>
+<html lang="ru">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Производство не успевает: где узкое место в потоке</title>
+  <style>
+    :root {
+      color-scheme: light;
+      --toc-case-bg: #f7f8fa;
+      --toc-case-card: #ffffff;
+      --toc-case-ink: #151922;
+      --toc-case-muted: #667085;
+      --toc-case-line: #dde4ee;
+      --toc-case-blue: #1f5f9f;
+      --toc-case-blue-deep: #143f6b;
+      --toc-case-blue-soft: #e9f2fb;
+      --toc-case-amber: #a3630f;
+      --toc-case-amber-soft: #fff3dd;
+      --toc-case-green: #286c5a;
+      --toc-case-green-soft: #edf7f2;
+      --toc-case-shadow: 0 24px 70px rgba(19, 31, 47, 0.10);
+      --toc-case-soft-shadow: 0 12px 32px rgba(19, 31, 47, 0.07);
+    }
+
+    body {
+      margin: 0;
+      background: #ffffff;
+      color: var(--toc-case-ink);
+      font-family: Inter, -apple-system, BlinkMacSystemFont, "Segoe UI", Arial, sans-serif;
+      letter-spacing: 0;
+    }
+
+    .toc-case,
+    .toc-case * {
+      box-sizing: border-box;
+    }
+
+    .toc-case {
+      width: min(1160px, calc(100vw - 32px));
+      margin: 48px auto;
+      padding: 32px 38px 36px;
+      background:
+        radial-gradient(circle at 16% 0%, rgba(31, 95, 159, 0.07), transparent 34%),
+        linear-gradient(180deg, #ffffff 0%, var(--toc-case-bg) 100%);
+      border: 1px solid rgba(200, 210, 223, 0.82);
+      border-radius: 24px;
+      box-shadow: var(--toc-case-shadow);
+    }
+
+    .toc-case__header {
+      display: grid;
+      gap: 22px;
+      margin-bottom: 26px;
+    }
+
+    .toc-case__eyebrow {
+      margin: 0 0 8px;
+      color: var(--toc-case-blue);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+    }
+
+    .toc-case h2,
+    .toc-case h3,
+    .toc-case p {
+      margin-top: 0;
+    }
+
+    .toc-case h2 {
+      max-width: 780px;
+      margin-bottom: 0;
+      color: var(--toc-case-ink);
+      font-size: 34px;
+      font-weight: 780;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .toc-case__header-note {
+      max-width: 780px;
+      margin: 0;
+      color: var(--toc-case-muted);
+      font-size: 14px;
+      line-height: 1.45;
+    }
+
+    .toc-case__tabs {
+      position: relative;
+      display: grid;
+      grid-template-columns: repeat(7, minmax(0, 1fr));
+      gap: 0;
+      margin: 0 6px 22px;
+      padding-top: 18px;
+    }
+
+    .toc-case__tabs::before {
+      content: "";
+      position: absolute;
+      top: 18px;
+      left: 8%;
+      right: 8%;
+      height: 1px;
+      background: var(--toc-case-line);
+    }
+
+    .toc-case__tab {
+      position: relative;
+      display: grid;
+      justify-items: center;
+      gap: 9px;
+      padding: 0 6px;
+      border: 0;
+      background: transparent;
+      color: var(--toc-case-muted);
+      font: inherit;
+      cursor: pointer;
+    }
+
+    .toc-case__tab:focus-visible {
+      outline: 3px solid rgba(31, 95, 159, 0.24);
+      outline-offset: 7px;
+      border-radius: 14px;
+    }
+
+    .toc-case__tab-number {
+      position: relative;
+      z-index: 1;
+      display: inline-grid;
+      place-items: center;
+      width: 32px;
+      height: 32px;
+      border: 1px solid var(--toc-case-line);
+      border-radius: 50%;
+      background: #ffffff;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 850;
+      line-height: 1;
+      letter-spacing: 0.06em;
+      transition: background 0.2s ease, border-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+    }
+
+    .toc-case__tab-text {
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 1;
+      transition: color 0.2s ease;
+    }
+
+    .toc-case__tab:hover .toc-case__tab-number,
+    .toc-case__tab--active .toc-case__tab-number {
+      border-color: rgba(31, 95, 159, 0.36);
+      background: var(--toc-case-blue);
+      color: #ffffff;
+      box-shadow: 0 8px 20px rgba(31, 95, 159, 0.18);
+    }
+
+    .toc-case__tab:hover .toc-case__tab-text,
+    .toc-case__tab--active .toc-case__tab-text {
+      color: var(--toc-case-ink);
+    }
+
+    .toc-case__main {
+      min-height: 438px;
+      padding: 34px 38px 36px;
+      background: var(--toc-case-card);
+      border: 1px solid rgba(200, 210, 223, 0.84);
+      border-radius: 22px;
+      box-shadow: var(--toc-case-soft-shadow);
+    }
+
+    .toc-case__screen {
+      display: none;
+      animation: toc-case-screen-in 0.22s ease both;
+    }
+
+    .toc-case__screen--active {
+      display: block;
+    }
+
+    @keyframes toc-case-screen-in {
+      from {
+        opacity: 0;
+        transform: translateY(7px);
+      }
+      to {
+        opacity: 1;
+        transform: translateY(0);
+      }
+    }
+
+    .toc-case__screen-head {
+      display: block;
+      margin-bottom: 28px;
+    }
+
+    .toc-case__screen-title {
+      width: 100%;
+      max-width: none;
+      margin-bottom: 12px;
+      color: var(--toc-case-ink);
+      font-size: 28px;
+      font-weight: 780;
+      line-height: 1.15;
+      letter-spacing: 0;
+    }
+
+    .toc-case__screen-copy {
+      max-width: 790px;
+      margin-bottom: 0;
+      color: var(--toc-case-muted);
+      font-size: 15px;
+      line-height: 1.52;
+    }
+
+    .toc-case__screen-copy--wide {
+      max-width: none;
+    }
+
+    .toc-case__situation {
+      display: grid;
+      grid-template-columns: 0.92fr 1.08fr;
+      gap: 34px;
+      align-items: start;
+    }
+
+    .toc-case__scene {
+      padding-left: 22px;
+      border-left: 3px solid var(--toc-case-blue);
+    }
+
+    .toc-case__scene-label {
+      margin-bottom: 14px;
+      color: var(--toc-case-blue);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .toc-case__scene-text {
+      margin-bottom: 0;
+      color: #384455;
+      font-size: 20px;
+      line-height: 1.45;
+    }
+
+    .toc-case__money-accent {
+      padding: 34px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #f8fbff, var(--toc-case-blue-soft));
+    }
+
+    .toc-case__money-line {
+      margin-bottom: 16px;
+      color: var(--toc-case-blue-deep);
+      font-size: 40px;
+      font-weight: 850;
+      line-height: 1.04;
+      letter-spacing: 0;
+    }
+
+    .toc-case__money-line span {
+      color: var(--toc-case-muted);
+      font-weight: 650;
+    }
+
+    .toc-case__mini-metrics {
+      display: grid;
+      grid-template-columns: repeat(2, minmax(0, 1fr));
+      gap: 9px;
+      margin-top: 18px;
+    }
+
+    .toc-case__mini-metric {
+      min-height: 62px;
+      padding: 11px 12px;
+      border: 1px solid rgba(31, 95, 159, 0.12);
+      border-radius: 13px;
+      background: rgba(255, 255, 255, 0.68);
+    }
+
+    .toc-case__mini-metric span {
+      display: block;
+      margin-bottom: 6px;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 650;
+      line-height: 1.18;
+    }
+
+    .toc-case__mini-metric strong {
+      display: block;
+      color: var(--toc-case-ink);
+      font-size: 15px;
+      font-weight: 760;
+      line-height: 1.18;
+    }
+
+    .toc-case__reaction-grid {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 18px;
+      margin-bottom: 22px;
+    }
+
+    .toc-case__reaction-item {
+      min-height: 156px;
+      padding: 24px 22px;
+      border-radius: 20px;
+      background: #f8fafc;
+    }
+
+    .toc-case__reaction-item h4 {
+      margin: 0 0 12px;
+      color: var(--toc-case-ink);
+      font-size: 20px;
+      font-weight: 760;
+      line-height: 1.18;
+    }
+
+    .toc-case__reaction-item p {
+      margin-bottom: 0;
+      color: #485467;
+      font-size: 15px;
+      line-height: 1.45;
+    }
+
+    .toc-case__reaction-conclusion,
+    .toc-case__statement {
+      margin: 0 auto;
+      width: fit-content;
+      max-width: 860px;
+      padding: 15px 20px;
+      border-radius: 999px;
+      background: var(--toc-case-amber-soft);
+      color: #6c410c;
+      font-size: 18px;
+      font-weight: 720;
+      line-height: 1.25;
+      text-align: center;
+    }
+
+    .toc-case__production-flow {
+      position: relative;
+      padding: 30px 24px 26px;
+      border-radius: 22px;
+      background: linear-gradient(135deg, #f9fbfe 0%, #eef5fc 100%);
+    }
+
+    .toc-case__flow-line {
+      position: absolute;
+      top: 102px;
+      left: 80px;
+      right: 80px;
+      height: 5px;
+      border-radius: 999px;
+      background: linear-gradient(90deg, var(--toc-case-blue) 0 73%, #d2dce9 73% 100%);
+    }
+
+    .toc-case__stages {
+      position: relative;
+      z-index: 1;
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 16px;
+      margin-bottom: 24px;
+    }
+
+    .toc-case__stage {
+      display: grid;
+      grid-template-rows: 58px auto auto;
+      align-items: start;
+      min-height: 156px;
+      padding: 28px 20px 20px;
+      border-radius: 20px;
+      background: #ffffff;
+      text-align: center;
+    }
+
+    .toc-case__stage--limit {
+      background: var(--toc-case-amber-soft);
+      box-shadow: 0 12px 28px rgba(128, 80, 18, 0.10);
+    }
+
+    .toc-case__stage-name {
+      margin-bottom: 0;
+      color: #384455;
+      font-size: 15px;
+      font-weight: 780;
+      line-height: 1.25;
+    }
+
+    .toc-case__stage-value {
+      margin-bottom: 6px;
+      color: var(--toc-case-blue-deep);
+      font-size: 40px;
+      font-weight: 850;
+      line-height: 1;
+    }
+
+    .toc-case__stage--limit .toc-case__stage-value {
+      color: var(--toc-case-amber);
+      font-size: 40px;
+    }
+
+    .toc-case__stage-unit {
+      margin-bottom: 0;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 1.2;
+    }
+
+    .toc-case__flow-accent {
+      margin: 0 auto 8px;
+      width: fit-content;
+      padding: 15px 20px;
+      border-radius: 999px;
+      background: #ffffff;
+      color: var(--toc-case-blue-deep);
+      font-size: 20px;
+      font-weight: 760;
+      line-height: 1.2;
+      text-align: center;
+      box-shadow: 0 8px 20px rgba(19, 31, 47, 0.06);
+    }
+
+    .toc-case__flow-accent strong {
+      color: var(--toc-case-amber);
+      font-weight: 850;
+    }
+
+    .toc-case__flow-note {
+      margin: 0;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      line-height: 1.45;
+      text-align: center;
+    }
+
+    .toc-case__zones {
+      display: grid;
+      grid-template-columns: repeat(3, minmax(0, 1fr));
+      gap: 14px;
+      margin-bottom: 24px;
+    }
+
+    .toc-case__zone {
+      min-height: 158px;
+      padding: 24px;
+      border-radius: 20px;
+      background: #f8fafc;
+    }
+
+    .toc-case__zone--blue {
+      background: var(--toc-case-blue-soft);
+    }
+
+    .toc-case__zone--amber {
+      background: var(--toc-case-amber-soft);
+    }
+
+    .toc-case__zone-label {
+      margin-bottom: 16px;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 800;
+      letter-spacing: 0.08em;
+      line-height: 1.25;
+      text-transform: uppercase;
+    }
+
+    .toc-case__zone-value {
+      margin-bottom: 0;
+      color: var(--toc-case-ink);
+      font-size: 34px;
+      font-weight: 850;
+      line-height: 1.08;
+      letter-spacing: 0;
+    }
+
+    .toc-case__zone-unit {
+      display: block;
+      margin-top: 6px;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 720;
+      line-height: 1.2;
+    }
+
+    .toc-case__checklist {
+      display: grid;
+      gap: 14px;
+      max-width: 830px;
+      margin: 0 auto;
+      padding: 0;
+      list-style: none;
+      counter-reset: toc-check;
+    }
+
+    .toc-case__checklist li {
+      counter-increment: toc-check;
+      display: grid;
+      grid-template-columns: 44px 1fr;
+      gap: 16px;
+      align-items: center;
+      color: var(--toc-case-ink);
+      font-size: 20px;
+      font-weight: 400;
+      line-height: 1.3;
+    }
+
+    .toc-case__checklist li::before {
+      content: counter(toc-check);
+      display: grid;
+      place-items: center;
+      width: 38px;
+      height: 38px;
+      border-radius: 50%;
+      background: var(--toc-case-blue-soft);
+      color: var(--toc-case-blue-deep);
+      font-size: 14px;
+      font-weight: 850;
+    }
+
+    .toc-case__before-after {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 0;
+      margin-bottom: 24px;
+      border: 1px solid var(--toc-case-line);
+      border-radius: 22px;
+      overflow: hidden;
+    }
+
+    .toc-case__state {
+      min-height: 178px;
+      padding: 30px;
+      background: #ffffff;
+    }
+
+    .toc-case__state--before {
+      background: #fffaf2;
+      border-right: 1px solid var(--toc-case-line);
+    }
+
+    .toc-case__state--after {
+      background: var(--toc-case-green-soft);
+    }
+
+    .toc-case__state-kicker {
+      display: block;
+      margin-bottom: 16px;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      font-weight: 850;
+      letter-spacing: 0.08em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .toc-case__state p {
+      margin-bottom: 0;
+      color: var(--toc-case-ink);
+      font-size: 20px;
+      font-weight: 400;
+      line-height: 1.25;
+    }
+
+    .toc-case__tools-line {
+      margin-bottom: 0;
+      padding: 17px 20px;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: #445064;
+      font-size: 15px;
+      line-height: 1.35;
+      text-align: center;
+    }
+
+    .toc-case__tools-line strong {
+      color: var(--toc-case-blue-deep);
+      font-weight: 850;
+    }
+
+    .toc-case__effect {
+      display: grid;
+      justify-items: center;
+      gap: 18px;
+      padding: 12px 34px 0;
+      text-align: center;
+    }
+
+    .toc-case__result-value {
+      margin-bottom: 0;
+      color: var(--toc-case-green);
+      font-size: 92px;
+      font-weight: 850;
+      line-height: 0.98;
+      letter-spacing: 0;
+    }
+
+    .toc-case__result-unit {
+      font-size: 20px;
+      font-weight: 720;
+      line-height: 1;
+      white-space: nowrap;
+    }
+
+    .toc-case__result-text {
+      max-width: 760px;
+      margin-bottom: 0;
+      color: #384455;
+      font-size: 18px;
+      font-weight: 400;
+      line-height: 1.42;
+    }
+
+    .toc-case__formula {
+      margin: 0;
+      padding: 11px 15px;
+      border-radius: 999px;
+      background: #f8fafc;
+      color: var(--toc-case-muted);
+      font-size: 14px;
+      font-weight: 680;
+      line-height: 1;
+    }
+
+    .toc-case__note {
+      max-width: 820px;
+      margin: 0;
+      color: var(--toc-case-muted);
+      font-size: 12px;
+      line-height: 1.45;
+    }
+  </style>
+</head>
+<body>
+  <section class="toc-case" aria-labelledby="toc-case-title">
+    <header class="toc-case__header">
+      <div>
+        <p class="toc-case__eyebrow">Интерактивный разбор</p>
+        <h2 id="toc-case-title">Производство не успевает:<br>где узкое место в потоке</h2>
+      </div>
+      <p class="toc-case__header-note">Посмотрите, почему ускорение всех участков не спасает сроки, если поток упирается в одно ограничение</p>
+    </header>
+
+    <div class="toc-case__tabs" role="tablist" aria-label="Этапы разбора производственного ограничения">
+      <button class="toc-case__tab toc-case__tab--active" type="button" role="tab" id="toc-case-tab-situation" aria-controls="toc-case-screen-situation" aria-selected="true" aria-expanded="true" aria-current="step" tabindex="0" data-screen="situation">
+        <span class="toc-case__tab-number">01</span>
+        <span class="toc-case__tab-text">Ситуация</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-reaction" aria-controls="toc-case-screen-reaction" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="reaction">
+        <span class="toc-case__tab-number">02</span>
+        <span class="toc-case__tab-text">Реакция</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-flow" aria-controls="toc-case-screen-flow" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="flow">
+        <span class="toc-case__tab-number">03</span>
+        <span class="toc-case__tab-text">Поток</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-constraint" aria-controls="toc-case-screen-constraint" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="constraint">
+        <span class="toc-case__tab-number">04</span>
+        <span class="toc-case__tab-text">Ограничение</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-check" aria-controls="toc-case-screen-check" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="check">
+        <span class="toc-case__tab-number">05</span>
+        <span class="toc-case__tab-text">Проверка</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-solution" aria-controls="toc-case-screen-solution" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="solution">
+        <span class="toc-case__tab-number">06</span>
+        <span class="toc-case__tab-text">Решение</span>
+      </button>
+      <button class="toc-case__tab" type="button" role="tab" id="toc-case-tab-effect" aria-controls="toc-case-screen-effect" aria-selected="false" aria-expanded="false" tabindex="-1" data-screen="effect">
+        <span class="toc-case__tab-number">07</span>
+        <span class="toc-case__tab-text">Эффект</span>
+      </button>
+    </div>
+
+    <div class="toc-case__main">
+      <article class="toc-case__screen toc-case__screen--active" role="tabpanel" id="toc-case-screen-situation" aria-labelledby="toc-case-tab-situation" tabindex="0" data-screen-panel="situation">
+        <div class="toc-case__situation">
+          <div class="toc-case__scene">
+            <p class="toc-case__scene-label">Сцена недели</p>
+            <h3 class="toc-case__screen-title">Заказы растут, но производство не успевает их выполнять</h3>
+            <p class="toc-case__scene-text">Коммерция продает, производство загружено, руководители вручную меняют приоритеты заказов. Но клиенты ждут дольше обещанного, а невыполненный объем растет</p>
+          </div>
+          <div class="toc-case__money-accent">
+            <p class="toc-case__money-line">50 млн руб. заказов <span>≠</span><br>50 млн руб. отгрузки</p>
+            <div class="toc-case__mini-metrics" aria-label="Исходные показатели кейса">
+              <div class="toc-case__mini-metric">
+                <span>Продажи заключают договоров</span>
+                <strong>50 млн руб. в месяц</strong>
+              </div>
+              <div class="toc-case__mini-metric">
+                <span>Производство отгружает</span>
+                <strong>38-40 млн руб.</strong>
+              </div>
+              <div class="toc-case__mini-metric">
+                <span>Невыполненный объем</span>
+                <strong>10-12 млн руб.</strong>
+              </div>
+              <div class="toc-case__mini-metric">
+                <span>Последствие</span>
+                <strong>срывы сроков, претензии, риск потери клиентов</strong>
+              </div>
+            </div>
+          </div>
+        </div>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-reaction" aria-labelledby="toc-case-tab-reaction" tabindex="0" data-screen-panel="reaction" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Что обычно делают: пытаются ускорить всех</h3>
+          <p class="toc-case__screen-copy">Эти меры могут временно снизить напряжение, но не увеличат поток, если ограничение находится на одном участке</p>
+        </div>
+
+        <div class="toc-case__reaction-grid">
+          <div class="toc-case__reaction-item">
+            <h4>Наращивают мощность всех участков</h4>
+            <p>Затраты растут, но узкое место не исчезает</p>
+          </div>
+          <div class="toc-case__reaction-item">
+            <h4>Требуют ускорить выполнение заказов</h4>
+            <p>Люди работают быстрее, но очередь перед ограничением остается</p>
+          </div>
+          <div class="toc-case__reaction-item">
+            <h4>Переставляют заказы вручную</h4>
+            <p>Часть клиентов спасают, но система остается перегруженной</p>
+          </div>
+        </div>
+        <p class="toc-case__reaction-conclusion">Краткосрочный эффект есть. Скорость всего потока не меняется</p>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-flow" aria-labelledby="toc-case-tab-flow" tabindex="0" data-screen-panel="flow" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Скорость задает самый медленный участок</h3>
+          <p class="toc-case__screen-copy">Если один этап пропускает меньше заказов, чем остальные, именно он определяет фактическую мощность всей цепочки</p>
+        </div>
+
+        <div class="toc-case__production-flow" aria-label="Производственный поток по участкам">
+          <div class="toc-case__flow-line" aria-hidden="true"></div>
+          <div class="toc-case__stages">
+            <div class="toc-case__stage">
+              <p class="toc-case__stage-name">Подготовка материалов</p>
+              <p class="toc-case__stage-value">100</p>
+              <p class="toc-case__stage-unit">заказов в неделю</p>
+            </div>
+            <div class="toc-case__stage">
+              <p class="toc-case__stage-name">Сборка</p>
+              <p class="toc-case__stage-value">100</p>
+              <p class="toc-case__stage-unit">заказов в неделю</p>
+            </div>
+            <div class="toc-case__stage">
+              <p class="toc-case__stage-name">Контроль качества</p>
+              <p class="toc-case__stage-value">95</p>
+              <p class="toc-case__stage-unit">заказов в неделю</p>
+            </div>
+            <div class="toc-case__stage toc-case__stage--limit">
+              <p class="toc-case__stage-name">Покраска</p>
+              <p class="toc-case__stage-value">72</p>
+              <p class="toc-case__stage-unit">заказа в неделю</p>
+            </div>
+          </div>
+          <p class="toc-case__flow-accent">Запускают <strong>100</strong> заказов, но через покраску проходит только <strong>72</strong></p>
+          <p class="toc-case__flow-note">Остальные 28 заказов регулярно застревают перед узким местом</p>
+        </div>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-constraint" aria-labelledby="toc-case-tab-constraint" tabindex="0" data-screen-panel="constraint" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Ограничение по ТОС - участок покраски</h3>
+          <p class="toc-case__screen-copy toc-case__screen-copy--wide">Проблема не в том, что все производство работает медленно. Поток упирается в участок, который пропускает меньше заказов, чем остальные</p>
+        </div>
+
+        <div class="toc-case__zones" aria-label="Расчет ограничения потока">
+          <div class="toc-case__zone toc-case__zone--blue">
+            <p class="toc-case__zone-label">Запускают в поток</p>
+            <p class="toc-case__zone-value">100 <span class="toc-case__zone-unit">заказов в неделю</span></p>
+          </div>
+          <div class="toc-case__zone toc-case__zone--amber">
+            <p class="toc-case__zone-label">Проходит через ограничение</p>
+            <p class="toc-case__zone-value">72 <span class="toc-case__zone-unit">заказа в неделю</span></p>
+          </div>
+          <div class="toc-case__zone">
+            <p class="toc-case__zone-label">Застревает перед узким местом</p>
+            <p class="toc-case__zone-value">28 <span class="toc-case__zone-unit">заказов в неделю</span></p>
+          </div>
+        </div>
+        <p class="toc-case__statement">Ограничение - не общая загрузка производства, а фактическая мощность узкого участка</p>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-check" aria-labelledby="toc-case-tab-check" tabindex="0" data-screen-panel="check" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Найдите участок, который сдерживает отгрузку</h3>
+          <p class="toc-case__screen-copy">Смотрите не на общую загрузку производства, а на участок, который задает скорость отгрузки</p>
+        </div>
+
+        <ol class="toc-case__checklist">
+          <li>Где постоянно копится очередь</li>
+          <li>Где чаще всего работают сверхурочно</li>
+          <li>На каком этапе срываются сроки</li>
+          <li>Где вручную меняют приоритеты заказов</li>
+          <li>Какой этап задает скорость отгрузки</li>
+        </ol>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-solution" aria-labelledby="toc-case-tab-solution" tabindex="0" data-screen-panel="solution" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Подчините производство мощности узкого места</h3>
+          <p class="toc-case__screen-copy toc-case__screen-copy--wide">В поток нужно запускать столько заказов, сколько реально пройдет через ограничение. Иначе компания сама создает незавершенку и срывет сроки</p>
+        </div>
+
+        <div class="toc-case__before-after" aria-label="Было и стало">
+          <div class="toc-case__state toc-case__state--before">
+            <span class="toc-case__state-kicker">Было</span>
+            <p>В производство запускают 100 заказов, потому что первые участки могут их принять</p>
+          </div>
+          <div class="toc-case__state toc-case__state--after">
+            <span class="toc-case__state-kicker">Стало</span>
+            <p>План запуска синхронизируют с мощностью узкого места и приоритетом заказов</p>
+          </div>
+        </div>
+
+        <p class="toc-case__tools-line"><strong>Инструменты:</strong> буфер перед ограничением · приоритет заказов по марже и штрафам · меньше переналадок · материалы заранее · аутсорсинг или дополнительная смена на узком участке</p>
+      </article>
+
+      <article class="toc-case__screen" role="tabpanel" id="toc-case-screen-effect" aria-labelledby="toc-case-tab-effect" tabindex="0" data-screen-panel="effect" hidden>
+        <div class="toc-case__screen-head">
+          <h3 class="toc-case__screen-title">Рост мощности узкого участка дает прирост валовой прибыли</h3>
+        </div>
+
+        <div class="toc-case__effect">
+          <p class="toc-case__result-value">+585 <span class="toc-case__result-unit">тыс. руб. в неделю</span></p>
+          <p class="toc-case__result-text">Если поднять мощность покраски с 72 до 85 заказов в неделю, компания сможет пропустить на 13 заказов больше. При средней марже 45 тыс. руб. на заказ это даст около 585 тыс. руб. дополнительной валовой прибыли в неделю</p>
+          <p class="toc-case__formula">13 заказов × 45 тыс. руб. = 585 тыс. руб.</p>
+          <p class="toc-case__note">Эффект появится только если остальные процессы подчинены новому ритму: продажи обещают реальные сроки, запуск заказов синхронизирован с ограничением, а узкое место не простаивает из-за материалов, переналадок и неприоритетных заказов</p>
+        </div>
+      </article>
+    </div>
+  </section>
+
+  <script>
+    (function () {
+      const root = document.querySelector('.toc-case');
+      const tabs = Array.from(root.querySelectorAll('[data-screen]'));
+      const screens = Array.from(root.querySelectorAll('[data-screen-panel]'));
+
+      function activateScreen(screenName, shouldFocus) {
+        tabs.forEach((tab) => {
+          const isActive = tab.dataset.screen === screenName;
+          tab.classList.toggle('toc-case__tab--active', isActive);
+          tab.setAttribute('aria-selected', String(isActive));
+          tab.setAttribute('aria-expanded', String(isActive));
+          tab.setAttribute('tabindex', isActive ? '0' : '-1');
+
+          if (isActive) {
+            tab.setAttribute('aria-current', 'step');
+            if (shouldFocus) {
+              tab.focus();
+            }
+          } else {
+            tab.removeAttribute('aria-current');
+          }
+        });
+
+        screens.forEach((screen) => {
+          const isActive = screen.dataset.screenPanel === screenName;
+          screen.hidden = !isActive;
+          screen.classList.toggle('toc-case__screen--active', isActive);
+        });
+      }
+
+      tabs.forEach((tab, index) => {
+        tab.addEventListener('click', () => activateScreen(tab.dataset.screen, false));
+
+        tab.addEventListener('keydown', (event) => {
+          const lastIndex = tabs.length - 1;
+          let nextIndex = index;
+
+          if (event.key === 'ArrowRight') {
+            nextIndex = index === lastIndex ? 0 : index + 1;
+          } else if (event.key === 'ArrowLeft') {
+            nextIndex = index === 0 ? lastIndex : index - 1;
+          } else if (event.key === 'Home') {
+            nextIndex = 0;
+          } else if (event.key === 'End') {
+            nextIndex = lastIndex;
+          } else {
+            return;
+          }
+
+          event.preventDefault();
+          activateScreen(tabs[nextIndex].dataset.screen, true);
+        });
+      });
+    })();
+  </script>
+</body>
+</html>
